@@ -3,13 +3,14 @@
  *
  * Enhanced demo integration script showing how to use the standalone mode
  * This demonstrates a typical integration pattern for external applications
- * with SQLite storage capabilities
+ * with standalone SQLite storage capabilities
  */
 
 const WebSocket = require("ws");
 const axios = require("axios");
 const chalk = require("chalk");
 const readline = require("readline");
+const StandaloneSQLiteStorage = require('./standalone-sqlite');
 
 // Configuration
 const config = {
@@ -23,7 +24,8 @@ const config = {
 		database_path: "./data/demo_biocv_data.db",
 		max_table_size: 1000,
 		retention_days: 7,
-		auto_create_tables: true
+		auto_create_tables: true,
+		enable_logging: true
 	}
 };
 
@@ -40,27 +42,19 @@ let storageAdapter = null;
 let rl = null;
 
 /**
- * Initialize SQLite storage
+ * Initialize standalone SQLite storage
  */
 async function initializeStorage() {
 	try {
-		const SQLiteStorageAdapter = require('./sqlite-adapter');
-		storageAdapter = new SQLiteStorageAdapter(null, config.storageConfig);
+		storageAdapter = new StandaloneSQLiteStorage(config.storageConfig);
 		
 		await storageAdapter.initialize();
 		config.storageEnabled = true;
 		
-		console.log(chalk.green('✓ SQLite storage initialized'));
+		console.log(chalk.green('✓ Standalone SQLite storage initialized'));
 		console.log(chalk.gray(`  Database: ${config.storageConfig.database_path}`));
-		
-		// Set up storage event listeners
-		storageAdapter.on('dataStored', (event) => {
-			console.log(chalk.gray(`[Storage] ${event.type} data stored for ${event.mac || 'environment'}`));
-		});
-		
-		storageAdapter.on('error', (error) => {
-			console.error(chalk.red('[Storage Error]:'), error.message);
-		});
+		console.log(chalk.gray(`  Max table size: ${config.storageConfig.max_table_size}`));
+		console.log(chalk.gray(`  Retention: ${config.storageConfig.retention_days} days`));
 		
 	} catch (error) {
 		console.error(chalk.red('Failed to initialize storage:'), error.message);
@@ -98,7 +92,7 @@ function processSensorData(data) {
 
 	// Store in SQLite if enabled
 	if (config.storageEnabled && storageAdapter) {
-		storageAdapter.storeSensorData(mac, data, null).catch(err => {
+		storageAdapter.storeSensorData(mac, data).catch(err => {
 			console.error(chalk.red(`[Storage] Failed to store sensor data: ${err.message}`));
 		});
 	}
@@ -255,7 +249,6 @@ async function enableStorage() {
 	if (!storageAdapter) {
 		await initializeStorage();
 	} else {
-		await storageAdapter.enable();
 		config.storageEnabled = true;
 		console.log(chalk.green('✓ Storage enabled'));
 	}
@@ -263,7 +256,6 @@ async function enableStorage() {
 
 async function disableStorage() {
 	if (storageAdapter) {
-		storageAdapter.disable();
 		config.storageEnabled = false;
 		console.log(chalk.yellow('⚠ Storage disabled'));
 	}
@@ -306,6 +298,39 @@ async function cleanupOldData(days = 7) {
 		return deletedCount;
 	} catch (error) {
 		throw new Error(`Failed to cleanup data: ${error.message}`);
+	}
+}
+
+/**
+ * Export data to JSON file
+ */
+async function exportData(filePath = './data/demo_export.json', options = {}) {
+	if (!storageAdapter || !config.storageEnabled) {
+		throw new Error('Storage not enabled');
+	}
+
+	try {
+		const exportData = await storageAdapter.exportToJSON(filePath, options);
+		console.log(chalk.green(`✓ Exported ${exportData.record_count} records to ${filePath}`));
+		return exportData;
+	} catch (error) {
+		throw new Error(`Failed to export data: ${error.message}`);
+	}
+}
+
+/**
+ * Query all data across all devices
+ */
+async function queryAllData(options = {}) {
+	if (!storageAdapter || !config.storageEnabled) {
+		throw new Error('Storage not enabled');
+	}
+
+	try {
+		const data = await storageAdapter.queryAllData(options);
+		return data;
+	} catch (error) {
+		throw new Error(`Failed to query all data: ${error.message}`);
 	}
 }
 
@@ -418,6 +443,14 @@ function setupInteractiveInterface() {
 			case 'q':
 				await showQueryHelp();
 				break;
+			case 'query all':
+			case 'qa':
+				await handleQueryAllCommand();
+				break;
+			case 'export':
+			case 'e':
+				await handleExportCommand();
+				break;
 			case 'cleanup':
 			case 'c':
 				await cleanupOldData();
@@ -425,6 +458,9 @@ function setupInteractiveInterface() {
 			case 'analyze':
 			case 'a':
 				await analyzeData();
+				break;
+			case 'config':
+				await showConfig();
 				break;
 			case 'exit':
 			case 'quit':
@@ -434,6 +470,8 @@ function setupInteractiveInterface() {
 			default:
 				if (command.startsWith('query ')) {
 					await handleQueryCommand(command);
+				} else if (command.startsWith('export ')) {
+					await handleExportCommand(command);
 				} else if (command) {
 					console.log(chalk.red(`Unknown command: ${command}`));
 					console.log(chalk.gray('Type "help" for available commands'));
@@ -451,18 +489,25 @@ function setupInteractiveInterface() {
 function showHelp() {
 	console.log(chalk.cyan.bold('\n=== Available Commands ==='));
 	console.log(chalk.white('help, h              - Show this help'));
-	console.log(chalk.white('storage enable, se   - Enable SQLite storage'));
+	console.log(chalk.white('storage enable, se   - Enable standalone SQLite storage'));
 	console.log(chalk.white('storage disable, sd  - Disable SQLite storage'));
 	console.log(chalk.white('storage status, ss   - Show storage status'));
 	console.log(chalk.white('query, q             - Show query help'));
+	console.log(chalk.white('query all, qa        - Query all data across devices'));
+	console.log(chalk.white('export, e            - Export data to JSON'));
 	console.log(chalk.white('cleanup, c           - Clean up old data'));
 	console.log(chalk.white('analyze, a           - Run data analysis'));
+	console.log(chalk.white('config               - Show storage configuration'));
 	console.log(chalk.white('exit, quit           - Exit the demo'));
 	console.log(chalk.gray('\nQuery commands:'));
 	console.log(chalk.white('query <mac> [type] [limit] - Query stored data'));
 	console.log(chalk.gray('  mac: MAC address (required)'));
 	console.log(chalk.gray('  type: sensor|battery|ant|environment|all (default: all)'));
 	console.log(chalk.gray('  limit: number of records (default: 10)'));
+	console.log(chalk.gray('\nExport commands:'));
+	console.log(chalk.white('export [file] [options] - Export data to JSON'));
+	console.log(chalk.gray('  file: output file path (default: ./data/demo_export.json)'));
+	console.log(chalk.gray('  options: --type <type> --mac <mac> --limit <number>'));
 	console.log(chalk.cyan('========================\n'));
 }
 
@@ -544,6 +589,64 @@ async function handleQueryCommand(command) {
 	}
 }
 
+async function handleQueryAllCommand() {
+	try {
+		const data = await queryAllData({ limit: 20 });
+		if (data.length === 0) {
+			console.log(chalk.yellow('No data found across all devices'));
+		} else {
+			console.log(chalk.green(`\nFound ${data.length} records across all devices:`));
+			data.forEach((record, index) => {
+				console.log(chalk.gray(`\n${index + 1}. ${record.mac_address} - ${record.data_type} - ${record.timestamp}`));
+				if (record.rssi !== null) console.log(chalk.gray(`   RSSI: ${record.rssi}`));
+				if (record.temperature !== null) console.log(chalk.gray(`   Temperature: ${record.temperature}°C`));
+				if (record.battery_percentage !== null) console.log(chalk.gray(`   Battery: ${record.battery_percentage}%`));
+				if (record.ant_mac) console.log(chalk.gray(`   ANT: ${record.ant_mac}`));
+				if (record.distance !== null) console.log(chalk.gray(`   Distance: ${record.distance}`));
+			});
+		}
+	} catch (error) {
+		console.error(chalk.red('Query all error:'), error.message);
+	}
+}
+
+async function handleExportCommand(command = '') {
+	const parts = command.split(' ');
+	const filePath = parts[1] || './data/demo_export.json';
+	
+	// Parse options
+	const options = {};
+	for (let i = 2; i < parts.length; i += 2) {
+		if (parts[i] === '--type' && parts[i + 1]) {
+			options.dataType = parts[i + 1];
+		} else if (parts[i] === '--mac' && parts[i + 1]) {
+			options.mac = parts[i + 1];
+		} else if (parts[i] === '--limit' && parts[i + 1]) {
+			options.limit = parseInt(parts[i + 1]);
+		}
+	}
+
+	try {
+		await exportData(filePath, options);
+	} catch (error) {
+		console.error(chalk.red('Export error:'), error.message);
+	}
+}
+
+async function showConfig() {
+	if (!storageAdapter) {
+		console.log(chalk.yellow('Storage not initialized'));
+		return;
+	}
+
+	const config = storageAdapter.getConfig();
+	console.log(chalk.cyan.bold('\n=== Storage Configuration ==='));
+	Object.entries(config).forEach(([key, value]) => {
+		console.log(chalk.white(`${key}: ${value}`));
+	});
+	console.log(chalk.cyan('=============================\n'));
+}
+
 /**
  * Main application
  */
@@ -554,6 +657,7 @@ async function main() {
 			"This demo shows how to integrate with the BioCV Node in standalone mode\n"
 		)
 	);
+	console.log(chalk.gray("Now featuring completely independent SQLite storage!"));
 
 	// Initialize storage if enabled
 	if (config.storageConfig.enabled) {
@@ -615,6 +719,9 @@ module.exports = {
 	disableStorage,
 	getStorageStatus,
 	queryStoredData,
+	queryAllData,
+	exportData,
 	cleanupOldData,
 	analyzeData,
+	showConfig,
 };
