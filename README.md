@@ -1,0 +1,1 @@
+# node-standalone-consumer-example
