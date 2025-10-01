@@ -1,0 +1,28 @@
+{
+  "name": "node-standalone-consumer-example",
+  "version": "1.0.0",
+  "description": "Enhanced demo integration script showing how to use the standalone mode with BioCV Node",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js"
+  },
+  "keywords": [
+    "biocv",
+    "websocket",
+    "sqlite",
+    "sensor-data",
+    "standalone"
+  ],
+  "author": "BioCV GmbH",
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.14.2",
+    "axios": "^1.6.0",
+    "chalk": "^4.1.2",
+    "sqlite3": "^5.1.6"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
