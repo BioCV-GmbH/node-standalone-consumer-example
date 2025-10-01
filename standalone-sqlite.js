@@ -143,13 +143,16 @@ class StandaloneSQLiteStorage {
 		}
 
 		const sql = `
-			CREATE TABLE IF NOT EXISTS ${tableName} (
+			CREATE TABLE IF NOT EXISTS "${tableName}" (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				data_type TEXT NOT NULL,
 				mac_address TEXT NOT NULL,
-				timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+				x REAL,
+				y REAL,
+				z REAL,
+				c REAL,
+				t INTEGER,
 				rssi INTEGER,
-				temperature REAL,
 				battery_percentage INTEGER,
 				ant_mac TEXT,
 				distance REAL,
@@ -162,9 +165,9 @@ class StandaloneSQLiteStorage {
 		await this.run(sql);
 
 		// Create indexes for performance
-		await this.run(`CREATE INDEX IF NOT EXISTS idx_${tableName}_timestamp ON ${tableName}(timestamp)`);
-		await this.run(`CREATE INDEX IF NOT EXISTS idx_${tableName}_data_type ON ${tableName}(data_type)`);
-		await this.run(`CREATE INDEX IF NOT EXISTS idx_${tableName}_created_at ON ${tableName}(created_at)`);
+		await this.run(`CREATE INDEX IF NOT EXISTS "idx_${tableName}_t" ON "${tableName}"(t)`);
+		await this.run(`CREATE INDEX IF NOT EXISTS "idx_${tableName}_data_type" ON "${tableName}"(data_type)`);
+		await this.run(`CREATE INDEX IF NOT EXISTS "idx_${tableName}_created_at" ON "${tableName}"(created_at)`);
 
 		// Register table in metadata
 		await this.run(`
@@ -187,16 +190,20 @@ class StandaloneSQLiteStorage {
 		const tableName = await this.createTableForMac(mac);
 		
 		const sql = `
-			INSERT INTO ${tableName} (
-				data_type, mac_address, rssi, temperature, weight, raw_data
-			) VALUES (?, ?, ?, ?, ?, ?)
+			INSERT INTO "${tableName}" (
+				data_type, mac_address, x, y, z, c, t, rssi, weight, raw_data
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`;
 
 		const values = [
 			'sensor',
 			mac,
+			data.x || null,
+			data.y || null,
+			data.z || null,
+			data.c || data.T || null,  // Use c field or fallback to T for temperature
+			data.t || Date.now(),     // Use t field or current timestamp in unix ms
 			data.rssi || null,
-			data.temperature || data.T || null,
 			data.weight || null,
 			JSON.stringify(data)
 		];
@@ -217,7 +224,7 @@ class StandaloneSQLiteStorage {
 		const tableName = await this.createTableForMac(mac);
 		
 		const sql = `
-			INSERT INTO ${tableName} (
+			INSERT INTO "${tableName}" (
 				data_type, mac_address, battery_percentage, raw_data
 			) VALUES (?, ?, ?, ?)
 		`;
@@ -245,7 +252,7 @@ class StandaloneSQLiteStorage {
 		const tableName = await this.createTableForMac(macTag);
 		
 		const sql = `
-			INSERT INTO ${tableName} (
+			INSERT INTO "${tableName}" (
 				data_type, mac_address, ant_mac, distance, raw_data
 			) VALUES (?, ?, ?, ?, ?)
 		`;
@@ -320,7 +327,7 @@ class StandaloneSQLiteStorage {
 		const tableName = this.sanitizeMacForTableName(mac);
 		const { dataType, startDate, endDate, limit = 100 } = options;
 
-		let sql = `SELECT * FROM ${tableName} WHERE 1=1`;
+		let sql = `SELECT * FROM "${tableName}" WHERE 1=1`;
 		const params = [];
 
 		if (dataType && dataType !== 'all') {
@@ -329,16 +336,16 @@ class StandaloneSQLiteStorage {
 		}
 
 		if (startDate) {
-			sql += ` AND timestamp >= ?`;
+			sql += ` AND t >= ?`;
 			params.push(startDate);
 		}
 
 		if (endDate) {
-			sql += ` AND timestamp <= ?`;
+			sql += ` AND t <= ?`;
 			params.push(endDate);
 		}
 
-		sql += ` ORDER BY timestamp DESC LIMIT ?`;
+		sql += ` ORDER BY t DESC LIMIT ?`;
 		params.push(limit);
 
 		const results = await this.all(sql, params);
@@ -365,7 +372,7 @@ class StandaloneSQLiteStorage {
 		let allResults = [];
 
 		for (const table of tables) {
-			let sql = `SELECT * FROM ${table.table_name} WHERE 1=1`;
+			let sql = `SELECT * FROM "${table.table_name}" WHERE 1=1`;
 			const params = [];
 
 			if (dataType && dataType !== 'all') {
@@ -374,23 +381,23 @@ class StandaloneSQLiteStorage {
 			}
 
 			if (startDate) {
-				sql += ` AND timestamp >= ?`;
+				sql += ` AND t >= ?`;
 				params.push(startDate);
 			}
 
 			if (endDate) {
-				sql += ` AND timestamp <= ?`;
+				sql += ` AND t <= ?`;
 				params.push(endDate);
 			}
 
-			sql += ` ORDER BY timestamp DESC`;
+			sql += ` ORDER BY t DESC`;
 
 			const results = await this.all(sql, params);
 			allResults = allResults.concat(results);
 		}
 
 		// Sort by timestamp and limit
-		allResults.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+		allResults.sort((a, b) => (b.t || 0) - (a.t || 0));
 		allResults = allResults.slice(0, limit);
 
 		this.log('info', `Queried ${allResults.length} records across all devices`);
@@ -411,9 +418,9 @@ class StandaloneSQLiteStorage {
 				SELECT 
 					COUNT(*) as total_rows,
 					COUNT(DISTINCT data_type) as data_types,
-					MIN(timestamp) as first_entry,
-					MAX(timestamp) as last_entry
-				FROM ${tableName}
+					MIN(t) as first_entry,
+					MAX(t) as last_entry
+				FROM "${tableName}"
 			`);
 			return { mac, ...stats };
 		} else {
@@ -446,7 +453,7 @@ class StandaloneSQLiteStorage {
 		if (mac) {
 			const tableName = this.sanitizeMacForTableName(mac);
 			const result = await this.run(`
-				DELETE FROM ${tableName} 
+				DELETE FROM "${tableName}" 
 				WHERE created_at < ?
 			`, [cutoffDate.toISOString()]);
 			
@@ -462,7 +469,7 @@ class StandaloneSQLiteStorage {
 			let totalDeleted = 0;
 			for (const table of tables) {
 				const result = await this.run(`
-					DELETE FROM ${table.table_name} 
+					DELETE FROM "${table.table_name}" 
 					WHERE created_at < ?
 				`, [cutoffDate.toISOString()]);
 				
@@ -485,7 +492,7 @@ class StandaloneSQLiteStorage {
 
 		const tableName = this.sanitizeMacForTableName(mac);
 		
-		await this.run(`DROP TABLE IF EXISTS ${tableName}`);
+		await this.run(`DROP TABLE IF EXISTS "${tableName}"`);
 		await this.run(`DELETE FROM biocv_metadata WHERE table_name = ?`, [tableName]);
 		
 		this.createdTables.delete(tableName);
@@ -537,7 +544,7 @@ class StandaloneSQLiteStorage {
 		}
 
 		// Get row count
-		const count = await this.get(`SELECT COUNT(*) as count FROM ${tableName}`);
+		const count = await this.get(`SELECT COUNT(*) as count FROM "${tableName}"`);
 		
 		await this.run(`
 			UPDATE biocv_metadata 

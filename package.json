@@ -17,10 +17,10 @@
   "author": "BioCV GmbH",
   "license": "MIT",
   "dependencies": {
-    "ws": "^8.14.2",
     "axios": "^1.6.0",
     "chalk": "^4.1.2",
-    "sqlite3": "^5.1.6"
+    "sqlite3": "^5.1.7",
+    "ws": "^8.14.2"
   },
   "engines": {
     "node": ">=14.0.0"

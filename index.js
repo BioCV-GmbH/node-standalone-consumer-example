@@ -7,7 +7,6 @@
  */
 
 const WebSocket = require("ws");
-const axios = require("axios");
 const chalk = require("chalk");
 const readline = require("readline");
 const StandaloneSQLiteStorage = require('./standalone-sqlite');
@@ -17,7 +16,6 @@ const config = {
 	wsUrl: "ws://localhost:8080",
 	apiUrl: "http://localhost:3000",
 	reconnectInterval: 5000,
-	dataProcessingInterval: 10000,
 	storageEnabled: false,
 	storageConfig: {
 		enabled: false,
@@ -314,80 +312,6 @@ async function queryAllData(options = {}) {
 	}
 }
 
-/**
- * Periodically analyze collected data
- */
-async function analyzeData() {
-	console.log(chalk.cyan.bold("\n=== Data Analysis ==="));
-
-	// Analyze sensor activity
-	console.log(chalk.gray("\nActive Sensors:"));
-	for (const [mac, history] of dataStore.sensors) {
-		const recentData = history.slice(-10);
-		const avgRssi =
-			recentData.reduce((sum, d) => sum + d.rssi, 0) / recentData.length;
-		console.log(
-			`  ${mac}: ${history.length} readings, Avg RSSI: ${avgRssi.toFixed(1)}`
-		);
-	}
-
-	// Check battery status
-	console.log(chalk.gray("\nBattery Status:"));
-	for (const [mac, battery] of dataStore.lastBatteryUpdate) {
-		const age = (new Date() - battery.lastUpdate) / 1000 / 60; // minutes
-		console.log(`  ${mac}: ${battery.percentage}% (${age.toFixed(1)} min ago)`);
-	}
-
-	// Animal positions
-	console.log(chalk.gray("\nAnimal Positions:"));
-	for (const [animal, positions] of dataStore.animalPositions) {
-		console.log(`  ${animal}:`);
-		for (const [ant, pos] of positions) {
-			console.log(`    - ANT ${ant}: distance ${pos.distance}`);
-		}
-	}
-
-	// Environment
-	if (dataStore.environment) {
-		console.log(chalk.gray("\nEnvironment:"));
-		console.log(`  Temperature: ${dataStore.environment.temperature}°C`);
-		console.log(`  Humidity: ${dataStore.environment.humidity}%`);
-	}
-
-	// Storage status
-	if (config.storageEnabled) {
-		console.log(chalk.gray("\nStorage Status:"));
-		try {
-			const status = await getStorageStatus();
-			if (status.enabled && status.stats) {
-				console.log(`  Database: ${config.storageConfig.database_path}`);
-				console.log(`  Tables: ${status.stats.length}`);
-				if (status.stats.length > 0) {
-					const totalRows = status.stats.reduce((sum, table) => sum + (table.row_count || 0), 0);
-					console.log(`  Total records: ${totalRows}`);
-				}
-			} else {
-				console.log(`  Status: ${status.message || 'Unknown'}`);
-			}
-		} catch (error) {
-			console.log(`  Error: ${error.message}`);
-		}
-	} else {
-		console.log(chalk.gray("\nStorage: Disabled"));
-	}
-
-	// Query historical data via REST API
-	try {
-		const health = await axios.get(`${config.apiUrl}/health`);
-		console.log(chalk.gray("\nServer Health:"));
-		console.log(`  Uptime: ${(health.data.uptime / 60).toFixed(1)} minutes`);
-		console.log(`  Connected clients: ${health.data.clients}`);
-	} catch (err) {
-		console.error(chalk.red("Failed to fetch server health:"), err.message);
-	}
-
-	console.log(chalk.cyan("====================\n"));
-}
 
 /**
  * Interactive command interface
@@ -435,10 +359,6 @@ function setupInteractiveInterface() {
 			case 'c':
 				await cleanupOldData();
 				break;
-			case 'analyze':
-			case 'a':
-				await analyzeData();
-				break;
 			case 'config':
 				await showConfig();
 				break;
@@ -476,7 +396,6 @@ function showHelp() {
 	console.log(chalk.white('query all, qa        - Query all data across devices'));
 	console.log(chalk.white('export, e            - Export data to JSON'));
 	console.log(chalk.white('cleanup, c           - Clean up old data'));
-	console.log(chalk.white('analyze, a           - Run data analysis'));
 	console.log(chalk.white('config               - Show storage configuration'));
 	console.log(chalk.white('exit, quit           - Exit the demo'));
 	console.log(chalk.gray('\nQuery commands:'));
@@ -556,9 +475,18 @@ async function handleQueryCommand(command) {
 		} else {
 			console.log(chalk.green(`\nFound ${data.length} records for ${mac} (${dataType}):`));
 			data.forEach((record, index) => {
-				console.log(chalk.gray(`\n${index + 1}. ${record.data_type} - ${record.timestamp}`));
+				const timestamp = record.t ? new Date(record.t).toISOString() : record.timestamp || 'N/A';
+				console.log(chalk.gray(`\n${index + 1}. ${record.data_type} - ${timestamp}`));
+				
+				// Display new sensor data columns
+				if (record.x !== null) console.log(chalk.gray(`   X: ${record.x}`));
+				if (record.y !== null) console.log(chalk.gray(`   Y: ${record.y}`));
+				if (record.z !== null) console.log(chalk.gray(`   Z: ${record.z}`));
+				if (record.c !== null) console.log(chalk.gray(`   Temperature: ${record.c}°C`));
+				if (record.t !== null) console.log(chalk.gray(`   Timestamp: ${record.t} (unix ms)`));
+				
+				// Display other data
 				if (record.rssi !== null) console.log(chalk.gray(`   RSSI: ${record.rssi}`));
-				if (record.temperature !== null) console.log(chalk.gray(`   Temperature: ${record.temperature}°C`));
 				if (record.battery_percentage !== null) console.log(chalk.gray(`   Battery: ${record.battery_percentage}%`));
 				if (record.ant_mac) console.log(chalk.gray(`   ANT: ${record.ant_mac}`));
 				if (record.distance !== null) console.log(chalk.gray(`   Distance: ${record.distance}`));
@@ -577,9 +505,18 @@ async function handleQueryAllCommand() {
 		} else {
 			console.log(chalk.green(`\nFound ${data.length} records across all devices:`));
 			data.forEach((record, index) => {
-				console.log(chalk.gray(`\n${index + 1}. ${record.mac_address} - ${record.data_type} - ${record.timestamp}`));
+				const timestamp = record.t ? new Date(record.t).toISOString() : record.timestamp || 'N/A';
+				console.log(chalk.gray(`\n${index + 1}. ${record.mac_address} - ${record.data_type} - ${timestamp}`));
+				
+				// Display new sensor data columns
+				if (record.x !== null) console.log(chalk.gray(`   X: ${record.x}`));
+				if (record.y !== null) console.log(chalk.gray(`   Y: ${record.y}`));
+				if (record.z !== null) console.log(chalk.gray(`   Z: ${record.z}`));
+				if (record.c !== null) console.log(chalk.gray(`   Temperature: ${record.c}°C`));
+				if (record.t !== null) console.log(chalk.gray(`   Timestamp: ${record.t} (unix ms)`));
+				
+				// Display other data
 				if (record.rssi !== null) console.log(chalk.gray(`   RSSI: ${record.rssi}`));
-				if (record.temperature !== null) console.log(chalk.gray(`   Temperature: ${record.temperature}°C`));
 				if (record.battery_percentage !== null) console.log(chalk.gray(`   Battery: ${record.battery_percentage}%`));
 				if (record.ant_mac) console.log(chalk.gray(`   ANT: ${record.ant_mac}`));
 				if (record.distance !== null) console.log(chalk.gray(`   Distance: ${record.distance}`));
@@ -650,12 +587,6 @@ async function main() {
 	// Set up interactive interface
 	setupInteractiveInterface();
 
-	// Periodically analyze data
-	setInterval(analyzeData, config.dataProcessingInterval);
-
-	// Initial analysis after 5 seconds
-	setTimeout(analyzeData, 5000);
-
 	console.log(chalk.gray("Demo is running. Type 'help' for commands or Ctrl+C to exit.\n"));
 	rl.prompt();
 }
@@ -702,6 +633,5 @@ module.exports = {
 	queryAllData,
 	exportData,
 	cleanupOldData,
-	analyzeData,
 	showConfig,
 };
