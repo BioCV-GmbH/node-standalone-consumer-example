@@ -84,12 +84,6 @@ function processSensorData(data) {
 		sensorHistory.shift();
 	}
 
-	console.log(
-		chalk.blue(
-			`[Sensor ${mac}] RSSI: ${rssi}, Total readings: ${sensorHistory.length}`
-		)
-	);
-
 	// Store in SQLite if enabled
 	if (config.storageEnabled && storageAdapter) {
 		storageAdapter.storeSensorData(mac, data).catch(err => {
@@ -109,8 +103,6 @@ function processBatteryData(data) {
 		timestamp,
 		lastUpdate: new Date(),
 	});
-
-	console.log(chalk.yellow(`[Battery ${mac}] Level: ${percentage}%`));
 
 	// Alert on low battery
 	if (percentage < 20) {
@@ -144,12 +136,6 @@ function processAntData(data) {
 		lastUpdate: new Date(),
 	});
 
-	console.log(
-		chalk.magenta(
-			`[Position] Animal ${macTag} detected by ANT ${macAnt} at distance ${distance}`
-		)
-	);
-
 	// Store in SQLite if enabled
 	if (config.storageEnabled && storageAdapter) {
 		storageAdapter.storeAntData(macAnt, macTag, distance).catch(err => {
@@ -166,12 +152,6 @@ function processEnvironmentData(data) {
 		...data,
 		lastUpdate: new Date(),
 	};
-
-	console.log(
-		chalk.cyan(
-			`[Environment] Temperature: ${data.temperature}°C, Humidity: ${data.humidity}%`
-		)
-	);
 
 	// Store in SQLite if enabled
 	if (config.storageEnabled && storageAdapter) {
