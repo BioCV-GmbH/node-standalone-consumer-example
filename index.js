@@ -556,9 +556,18 @@ async function handleQueryCommand(command) {
 		} else {
 			console.log(chalk.green(`\nFound ${data.length} records for ${mac} (${dataType}):`));
 			data.forEach((record, index) => {
-				console.log(chalk.gray(`\n${index + 1}. ${record.data_type} - ${record.timestamp}`));
+				const timestamp = record.t ? new Date(record.t).toISOString() : record.timestamp || 'N/A';
+				console.log(chalk.gray(`\n${index + 1}. ${record.data_type} - ${timestamp}`));
+				
+				// Display new sensor data columns
+				if (record.x !== null) console.log(chalk.gray(`   X: ${record.x}`));
+				if (record.y !== null) console.log(chalk.gray(`   Y: ${record.y}`));
+				if (record.z !== null) console.log(chalk.gray(`   Z: ${record.z}`));
+				if (record.c !== null) console.log(chalk.gray(`   Temperature: ${record.c}°C`));
+				if (record.t !== null) console.log(chalk.gray(`   Timestamp: ${record.t} (unix ms)`));
+				
+				// Display other data
 				if (record.rssi !== null) console.log(chalk.gray(`   RSSI: ${record.rssi}`));
-				if (record.temperature !== null) console.log(chalk.gray(`   Temperature: ${record.temperature}°C`));
 				if (record.battery_percentage !== null) console.log(chalk.gray(`   Battery: ${record.battery_percentage}%`));
 				if (record.ant_mac) console.log(chalk.gray(`   ANT: ${record.ant_mac}`));
 				if (record.distance !== null) console.log(chalk.gray(`   Distance: ${record.distance}`));
@@ -577,9 +586,18 @@ async function handleQueryAllCommand() {
 		} else {
 			console.log(chalk.green(`\nFound ${data.length} records across all devices:`));
 			data.forEach((record, index) => {
-				console.log(chalk.gray(`\n${index + 1}. ${record.mac_address} - ${record.data_type} - ${record.timestamp}`));
+				const timestamp = record.t ? new Date(record.t).toISOString() : record.timestamp || 'N/A';
+				console.log(chalk.gray(`\n${index + 1}. ${record.mac_address} - ${record.data_type} - ${timestamp}`));
+				
+				// Display new sensor data columns
+				if (record.x !== null) console.log(chalk.gray(`   X: ${record.x}`));
+				if (record.y !== null) console.log(chalk.gray(`   Y: ${record.y}`));
+				if (record.z !== null) console.log(chalk.gray(`   Z: ${record.z}`));
+				if (record.c !== null) console.log(chalk.gray(`   Temperature: ${record.c}°C`));
+				if (record.t !== null) console.log(chalk.gray(`   Timestamp: ${record.t} (unix ms)`));
+				
+				// Display other data
 				if (record.rssi !== null) console.log(chalk.gray(`   RSSI: ${record.rssi}`));
-				if (record.temperature !== null) console.log(chalk.gray(`   Temperature: ${record.temperature}°C`));
 				if (record.battery_percentage !== null) console.log(chalk.gray(`   Battery: ${record.battery_percentage}%`));
 				if (record.ant_mac) console.log(chalk.gray(`   ANT: ${record.ant_mac}`));
 				if (record.distance !== null) console.log(chalk.gray(`   Distance: ${record.distance}`));
